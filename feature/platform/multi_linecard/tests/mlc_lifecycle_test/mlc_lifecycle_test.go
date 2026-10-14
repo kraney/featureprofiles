@@ -76,7 +76,7 @@ func newFixture(t *testing.T) *fixture {
 	sort.Ints(f.slots)
 	mlc.EnablePorts(t, dut)
 	f.refresh(t)
-	f.nodeIDs = mlc.ConfigureNodeIDs(t, dut, mlc.TargetICs(dut, f.inv, f.slots))
+	f.nodeIDs = mlc.ConfigureNodeIDs(t, dut, f.inv, mlc.TargetICs(dut, f.inv, f.slots))
 	for _, p := range dut.Ports() {
 		gnmi.Await(t, dut, gnmi.OC().Interface(p.Name()).OperStatus().State(), linkTimeout, oc.Interface_OperStatus_UP)
 	}
@@ -243,7 +243,7 @@ func TestMLCLifecycle(t *testing.T) {
 		// Re-apply what a controller would push after a reboot.
 		mlc.EnablePorts(t, f.dut)
 		f.refresh(t)
-		f.nodeIDs = mlc.ConfigureNodeIDs(t, f.dut, mlc.TargetICs(f.dut, f.inv, f.slots))
+		f.nodeIDs = mlc.ConfigureNodeIDs(t, f.dut, f.inv, mlc.TargetICs(f.dut, f.inv, f.slots))
 
 		for _, s := range f.slots {
 			lc, ok := f.lcBySlot[s]

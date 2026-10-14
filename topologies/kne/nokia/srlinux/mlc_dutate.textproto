@@ -92,6 +92,26 @@ nodes: {
     name: "otg"
     vendor: KEYSIGHT
     version: "0.0.1-9999" # Please update this with the local version from ixiatg-configmap.yaml
+    # eth2 and eth3 connect to DUT ports on different linecards and form the
+    # ATE side of the cross-linecard LAG in mlc_dataplane_test (MLC-INV-008).
+    interfaces: {
+        key: "eth1"
+    }
+    interfaces: {
+        key: "eth2"
+        value: {
+            group: "lag"
+        }
+    }
+    interfaces: {
+        key: "eth3"
+        value: {
+            group: "lag"
+        }
+    }
+    interfaces: {
+        key: "eth4"
+    }
 }
 links: {
     a_node: "dut"

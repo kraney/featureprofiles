@@ -19,8 +19,10 @@
 package mlc_dataplane_test
 
 import (
+	"flag"
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +33,8 @@ import (
 	"github.com/openconfig/featureprofiles/internal/gribi"
 	"github.com/openconfig/featureprofiles/internal/mlc"
 	"github.com/openconfig/featureprofiles/internal/otgutils"
+	"github.com/openconfig/gribigo/client"
+	"github.com/openconfig/gribigo/constants"
 	"github.com/openconfig/gribigo/fluent"
 	"github.com/openconfig/ondatra"
 	"github.com/openconfig/ondatra/gnmi"
@@ -54,6 +58,8 @@ const (
 func TestMain(m *testing.M) {
 	fptest.RunTests(m)
 }
+
+var lagATEPorts = flag.String("mlc_lag_ate_ports", "eth2,eth3", "Comma-separated ATE port names preferred as LAG members (KNE ixia-c requires LAG ports to be grouped in the topology).")
 
 // portAttrs returns DUT and ATE attributes for testbed port index i (0-based).
 func portAttrs(i int) (dut, ate attrs.Attributes) {
@@ -256,16 +262,21 @@ func TestMLCDataplane(t *testing.T) {
 
 	ni := deviations.DefaultNetworkInstance(f.dut)
 	gc := &gribi.Client{DUT: f.dut, FIBACK: true, Persistence: true}
-	t.Run("MLC-GRIBI-001_NHGSpanningLinecards", func(t *testing.T) {
+	gribiOK := t.Run("MLC-GRIBI-001_NHGSpanningLinecards", func(t *testing.T) {
 		if err := gc.Start(t); err != nil {
 			t.Fatalf("gRIBI Start: %v", err)
 		}
 		gc.BecomeLeader(t)
 		gc.FlushAll(t)
-		gc.AddNH(t, nh1ID, f.ateA[eg1].IPv4, ni, fluent.InstalledInFIB)
-		gc.AddNH(t, nh2ID, f.ateA[eg2].IPv4, ni, fluent.InstalledInFIB)
-		gc.AddNHG(t, nhgID, map[uint64]uint64{nh1ID: 1, nh2ID: 1}, ni, fluent.InstalledInFIB)
-		gc.AddIPv4(t, gribiPfx, nhgID, ni, ni, fluent.InstalledInFIB)
+		// Send the whole chain in one batch: some servers only acknowledge a next
+		// hop as FIB_PROGRAMMED once a route references it.
+		nh1, nh1Res := gribi.NHEntry(nh1ID, f.ateA[eg1].IPv4, ni, fluent.InstalledInFIB)
+		nh2, nh2Res := gribi.NHEntry(nh2ID, f.ateA[eg2].IPv4, ni, fluent.InstalledInFIB)
+		nhg, nhgRes := gribi.NHGEntry(nhgID, map[uint64]uint64{nh1ID: 1, nh2ID: 1}, ni, fluent.InstalledInFIB)
+		route := fluent.IPv4Entry().WithNetworkInstance(ni).WithPrefix(gribiPfx).WithNextHopGroup(nhgID)
+		routeRes := fluent.OperationResult().WithIPv4Operation(gribiPfx).WithOperationType(constants.Add).
+			WithProgrammingResult(fluent.InstalledInFIB).AsResult()
+		gc.AddEntries(t, []fluent.GRIBIEntry{nh1, nh2, nhg, route}, []*client.OpResult{nh1Res, nh2Res, nhgRes, routeRes})
 
 		f.configureATE(t)
 		f.addFlow("gribi_nhg", in, []int{eg1, eg2}, gribiDstMin, 200)
@@ -282,6 +293,10 @@ func TestMLCDataplane(t *testing.T) {
 	})
 
 	t.Run("MLC-GRIBI-002_EntriesSurviveReconnect", func(t *testing.T) {
+		if !gribiOK {
+			gc.Close(t)
+			t.Skip("MLC-GRIBI-001 did not program the next-hop group; nothing to preserve")
+		}
 		f.configureATE(t)
 		f.addFlow("gribi_reconnect", in, []int{eg1, eg2}, gribiDstMin, 200)
 		f.runFlows(t, func() {
@@ -314,9 +329,9 @@ func TestMLCDataplane(t *testing.T) {
 	})
 
 	t.Run("MLC-INV-008_LAGAcrossLinecards", func(t *testing.T) {
-		members := []int{eg1, eg2}
-		if f.slot[f.ports[eg1].Name()] == f.slot[f.ports[eg2].Name()] {
-			t.Fatalf("LAG members %s and %s are on the same linecard", f.ports[eg1].Name(), f.ports[eg2].Name())
+		members := f.lagMembers(t, in)
+		if len(members) != 2 {
+			t.Fatalf("could not find two LAG member ports on different linecards (excluding ingress %s)", f.ports[in].Name())
 		}
 		aggID := netutil.NextAggregateInterface(t, f.dut)
 		lagDUT := attrs.Attributes{Desc: "mlcLag", IPv4: "192.0.2.65", IPv4Len: plen}
@@ -332,7 +347,7 @@ func TestMLCDataplane(t *testing.T) {
 			f.top.Ports().Add().SetName(f.atePorts[m].ID())
 			lag.Ports().Add().SetPortName(f.atePorts[m].ID()).Ethernet().SetMac(fmt.Sprintf("02:00:01:01:02:%02x", i+2)).SetName(fmt.Sprintf("ateLag.m%d", i))
 		}
-		dev := f.top.Devices().Add().SetName("ateLag")
+		dev := f.top.Devices().Add().SetName("ateLagDev")
 		eth := dev.Ethernets().Add().SetName("ateLag.Eth").SetMac(lagATE.MAC)
 		eth.Connection().SetLagName("ateLag")
 		eth.Ipv4Addresses().Add().SetName("ateLag.IPv4").SetAddress(lagATE.IPv4).SetGateway(lagDUT.IPv4).SetPrefix(plen)
@@ -377,6 +392,40 @@ func TestMLCDataplane(t *testing.T) {
 	})
 }
 
+// lagMembers returns two DUT port indexes on different linecards, excluding
+// the ingress port. ATE ports named in -mlc_lag_ate_ports are preferred, since
+// emulated ATEs may only support LAGs on pre-grouped ports.
+func (f *fixture) lagMembers(t *testing.T, ingress int) []int {
+	t.Helper()
+	preferred := map[string]bool{}
+	for _, n := range strings.Split(*lagATEPorts, ",") {
+		if n != "" {
+			preferred[n] = true
+		}
+	}
+	pick := func(onlyPreferred bool) []int {
+		for i := range f.ports {
+			for j := i + 1; j < len(f.ports); j++ {
+				if i == ingress || j == ingress {
+					continue
+				}
+				if f.slot[f.ports[i].Name()] == f.slot[f.ports[j].Name()] {
+					continue
+				}
+				if onlyPreferred && !(preferred[f.atePorts[i].Name()] && preferred[f.atePorts[j].Name()]) {
+					continue
+				}
+				return []int{i, j}
+			}
+		}
+		return nil
+	}
+	if m := pick(true); m != nil {
+		return m
+	}
+	return pick(false)
+}
+
 func (f *fixture) configureLAG(t *testing.T, aggID string, members []int, a attrs.Attributes) {
 	t.Helper()
 	if deviations.AggregateAtomicUpdate(f.dut) {
@@ -411,4 +460,3 @@ func (f *fixture) configureLAG(t *testing.T, aggID string, members []int, a attr
 		gnmi.Replace(t, f.dut, gnmi.OC().Interface(f.ports[m].Name()).Config(), i)
 	}
 }
-

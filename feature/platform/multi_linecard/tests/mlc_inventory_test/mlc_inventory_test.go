@@ -94,6 +94,18 @@ func (f *fixture) slotOf(lc string) (int, bool) {
 	return 0, false
 }
 
+// populatedLinecards returns the linecards in slots that hold DUT ports. Other
+// slots of the chassis may legitimately be empty.
+func (f *fixture) populatedLinecards() []string {
+	var out []string
+	for _, s := range f.wantSlots {
+		if lc, ok := f.lcBySlot[s]; ok {
+			out = append(out, lc)
+		}
+	}
+	return out
+}
+
 func logInventory(t *testing.T, f *fixture) {
 	t.Helper()
 	var b strings.Builder
@@ -226,7 +238,7 @@ func TestMLCInventory(t *testing.T) {
 		if len(ics) == 0 {
 			t.Fatal("no INTEGRATED_CIRCUIT components to configure")
 		}
-		want := mlc.ConfigureNodeIDs(t, f.dut, ics)
+		want := mlc.ConfigureNodeIDs(t, f.dut, f.inv, ics)
 		for _, ic := range keys(boolKeys(want)) {
 			id := want[ic]
 			w := gnmi.Watch(t, f.dut, gnmi.OC().Component(ic).IntegratedCircuit().NodeId().State(), time.Minute, func(v *ygnmi.Value[uint64]) bool {
@@ -299,7 +311,7 @@ func TestMLCInventory(t *testing.T) {
 			}
 		}
 		portsByIC := f.inv.PortsByIC()
-		for _, lc := range f.inv.Linecards() {
+		for _, lc := range f.populatedLinecards() {
 			for _, ic := range f.inv.ICsOnLinecard(lc) {
 				if len(portsByIC[ic]) == 0 {
 					t.Errorf("IC %q owns no PORT components", ic)
@@ -327,7 +339,7 @@ func TestMLCInventory(t *testing.T) {
 			got[keyOf(u.GetPath(), "component")] = true
 		}
 		checked := 0
-		for _, lc := range f.inv.Linecards() {
+		for _, lc := range f.populatedLinecards() {
 			for _, ic := range f.inv.ICsOnLinecard(lc) {
 				checked++
 				if !got[ic] {
@@ -366,9 +378,16 @@ func TestMLCInventory(t *testing.T) {
 		}
 		// Disable the last port, which is on a different linecard than the first.
 		victim := ports[len(ports)-1]
+		wasUp := map[string]bool{}
+		for _, p := range ports[:len(ports)-1] {
+			wasUp[p.Name()] = gnmi.Get(t, f.dut, gnmi.OC().Interface(p.Name()).OperStatus().State()) == oc.Interface_OperStatus_UP
+		}
 		gnmi.Replace(t, f.dut, gnmi.OC().Interface(victim.Name()).Enabled().Config(), false)
 		gnmi.Await(t, f.dut, gnmi.OC().Interface(victim.Name()).OperStatus().State(), linkTimeout, oc.Interface_OperStatus_DOWN)
 		for _, p := range ports[:len(ports)-1] {
+			if !wasUp[p.Name()] {
+				continue
+			}
 			if st := gnmi.Get(t, f.dut, gnmi.OC().Interface(p.Name()).OperStatus().State()); st != oc.Interface_OperStatus_UP {
 				t.Errorf("disabling %q changed %q oper-status to %v", victim.Name(), p.Name(), st)
 			}

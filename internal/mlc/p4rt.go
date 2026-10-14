@@ -61,15 +61,46 @@ func TargetICs(dut *ondatra.DUTDevice, inv *Inventory, slots []int) []string {
 	return out
 }
 
-// ConfigureNodeIDs sets a distinct node-id on each IC. ICs whose Set is
-// rejected are reported through t.Errorf and omitted from the result.
-func ConfigureNodeIDs(t *testing.T, dut *ondatra.DUTDevice, ics []string) map[string]uint64 {
+// parentLinecard returns the linecard an IC belongs to, from its reported
+// parent or else from the vendor naming convention.
+func parentLinecard(dut *ondatra.DUTDevice, inv *Inventory, ic string) string {
+	if inv != nil {
+		if c := inv.Components[ic]; c != nil && c.Parent != "" {
+			if p := inv.Components[c.Parent]; p != nil && p.Type == oc.PlatformTypes_OPENCONFIG_HARDWARE_COMPONENT_LINECARD.String() {
+				return c.Parent
+			}
+		}
+	}
+	if n, ok := NamingFor(dut); ok {
+		if s, ok := SlotFromName(n.IC, ic); ok {
+			return n.LinecardName(s)
+		}
+	}
+	return ""
+}
+
+// ConfigureNodeIDs sets a distinct node-id on each IC. Like a controller's
+// generated config, it also declares the IC's parent linecard component, since
+// some devices reject IC config whose parent component is not configured. ICs
+// whose Set is rejected are reported through t.Errorf and omitted from the
+// result.
+func ConfigureNodeIDs(t *testing.T, dut *ondatra.DUTDevice, inv *Inventory, ics []string) map[string]uint64 {
 	t.Helper()
 	got := map[string]uint64{}
 	for i, ic := range ics {
 		id := uint64(NodeIDBase + i + 1)
+		// The component list key is a leafref to config/name, so set both.
+		d := &oc.Root{}
+		d.GetOrCreateComponent(ic).GetOrCreateIntegratedCircuit().NodeId = &id
+		if lc := parentLinecard(dut, inv, ic); lc != "" {
+			d.GetOrCreateComponent(lc)
+		}
 		ok := fptest.NonFatal(t, func(t testing.TB) {
-			gnmi.Replace(t, dut, gnmi.OC().Component(ic).IntegratedCircuit().NodeId().Config(), id)
+			b := &gnmi.SetBatch{}
+			for _, c := range d.Component {
+				gnmi.BatchUpdate(b, gnmi.OC().Component(*c.Name).Config(), c)
+			}
+			b.Set(t, dut)
 		})
 		if !ok {
 			t.Errorf("%s: gNMI Set of integrated-circuit/config/node-id rejected", ic)

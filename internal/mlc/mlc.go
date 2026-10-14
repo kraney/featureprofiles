@@ -54,6 +54,13 @@ type Naming struct {
 	Interface *regexp.Regexp
 	// ICFormat formats an IC name from (slot, chip).
 	ICFormat string
+	// LinecardFormat formats a linecard name from its slot.
+	LinecardFormat string
+}
+
+// LinecardName returns the conventional name of the linecard in slot.
+func (n Naming) LinecardName(slot int) string {
+	return fmt.Sprintf(n.LinecardFormat, slot)
 }
 
 // ICName returns the conventional name of chip on the linecard in slot.
@@ -65,28 +72,32 @@ func (n Naming) ICName(slot, chip int) string {
 // controller uses to associate gNMI components with linecard slots.
 var namings = map[ondatra.Vendor]Naming{
 	ondatra.ARISTA: {
-		Linecard:  regexp.MustCompile(`^Linecard(\d+)$`),
-		IC:        regexp.MustCompile(`^SwitchChip(\d+)/(\d+)$`),
-		Interface: regexp.MustCompile(`^Ethernet(\d+)/\d+(?:/\d+)?$`),
-		ICFormat:  "SwitchChip%d/%d",
+		Linecard:       regexp.MustCompile(`^Linecard(\d+)$`),
+		IC:             regexp.MustCompile(`^SwitchChip(\d+)/(\d+)$`),
+		Interface:      regexp.MustCompile(`^Ethernet(\d+)/\d+(?:/\d+)?$`),
+		ICFormat:       "SwitchChip%d/%d",
+		LinecardFormat: "Linecard%d",
 	},
 	ondatra.NOKIA: {
-		Linecard:  regexp.MustCompile(`^Linecard(\d+)$`),
-		IC:        regexp.MustCompile(`^SwitchChip(\d+)/(\d+)$`),
-		Interface: regexp.MustCompile(`^ethernet-(\d+)/\d+(?:/\d+)?$`),
-		ICFormat:  "SwitchChip%d/%d",
+		Linecard:       regexp.MustCompile(`^Linecard(\d+)$`),
+		IC:             regexp.MustCompile(`^SwitchChip(\d+)/(\d+)$`),
+		Interface:      regexp.MustCompile(`^ethernet-(\d+)/\d+(?:/\d+)?$`),
+		ICFormat:       "SwitchChip%d/%d",
+		LinecardFormat: "Linecard%d",
 	},
 	ondatra.CISCO: {
-		Linecard:  regexp.MustCompile(`^0/(\d+)/CPU0$`),
-		IC:        regexp.MustCompile(`^0/(\d+)/CPU0-NPU(\d+)$`),
-		Interface: regexp.MustCompile(`^[A-Za-z]+0/(\d+)/\d+/\d+(?:/\d+)?$`),
-		ICFormat:  "0/%d/CPU0-NPU%d",
+		Linecard:       regexp.MustCompile(`^0/(\d+)/CPU0$`),
+		IC:             regexp.MustCompile(`^0/(\d+)/CPU0-NPU(\d+)$`),
+		Interface:      regexp.MustCompile(`^[A-Za-z]+0/(\d+)/\d+/\d+(?:/\d+)?$`),
+		ICFormat:       "0/%d/CPU0-NPU%d",
+		LinecardFormat: "0/%d/CPU0",
 	},
 	ondatra.JUNIPER: {
-		Linecard:  regexp.MustCompile(`^(?:CHASSIS\d+:)?FPC(\d+)$`),
-		IC:        regexp.MustCompile(`^(?:CHASSIS\d+:)?FPC(\d+):PIC\d+:NPU(\d+)$`),
-		Interface: regexp.MustCompile(`^[a-z]+-(\d+)/\d+/\d+(?::\d+)?$`),
-		ICFormat:  "FPC%d:PIC0:NPU%d",
+		Linecard:       regexp.MustCompile(`^(?:CHASSIS\d+:)?FPC(\d+)$`),
+		IC:             regexp.MustCompile(`^(?:CHASSIS\d+:)?FPC(\d+):PIC\d+:NPU(\d+)$`),
+		Interface:      regexp.MustCompile(`^[a-z]+-(\d+)/\d+/\d+(?::\d+)?$`),
+		ICFormat:       "FPC%d:PIC0:NPU%d",
+		LinecardFormat: "FPC%d",
 	},
 }
 

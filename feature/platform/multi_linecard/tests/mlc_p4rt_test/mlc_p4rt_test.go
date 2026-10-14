@@ -96,7 +96,7 @@ func newFixture(t *testing.T) *fixture {
 		slotList = append(slotList, s)
 	}
 	sort.Ints(slotList)
-	f.nodeIDs = mlc.ConfigureNodeIDs(t, dut, mlc.TargetICs(dut, f.inv, slotList))
+	f.nodeIDs = mlc.ConfigureNodeIDs(t, dut, f.inv, mlc.TargetICs(dut, f.inv, slotList))
 	f.portIDs = mlc.ConfigurePortIDs(t, dut)
 	f.client = dut.RawAPIs().P4RT(t)
 	t.Logf("node-ids: %v", f.nodeIDs)
