@@ -25,7 +25,9 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+	"time"
 
+	"github.com/openconfig/featureprofiles/internal/fptest"
 	"github.com/openconfig/ondatra"
 	"github.com/openconfig/ondatra/gnmi"
 	"github.com/openconfig/ondatra/gnmi/oc"
@@ -280,7 +282,9 @@ func (inv *Inventory) PortsByIC() map[string][]string {
 	return out
 }
 
-// EnablePorts administratively enables every DUT port in the testbed.
+// EnablePorts administratively enables every DUT port in the testbed. A freshly
+// booted device may reject configuration until it finishes initializing, so the
+// Set is retried for up to five minutes.
 func EnablePorts(t testing.TB, dut *ondatra.DUTDevice) {
 	t.Helper()
 	b := &gnmi.SetBatch{}
@@ -292,7 +296,13 @@ func EnablePorts(t testing.TB, dut *ondatra.DUTDevice) {
 			Enabled: &enabled,
 		})
 	}
-	b.Set(t, dut)
+	deadline := time.Now().Add(5 * time.Minute)
+	for !fptest.NonFatal(t, func(t testing.TB) { b.Set(t, dut) }) {
+		if time.Now().After(deadline) {
+			t.Fatal("DUT did not accept interface configuration within 5 minutes")
+		}
+		time.Sleep(10 * time.Second)
+	}
 }
 
 // DUTPortSlots returns the linecard slot of every DUT port in the testbed,
