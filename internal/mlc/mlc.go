@@ -280,6 +280,21 @@ func (inv *Inventory) PortsByIC() map[string][]string {
 	return out
 }
 
+// EnablePorts administratively enables every DUT port in the testbed.
+func EnablePorts(t testing.TB, dut *ondatra.DUTDevice) {
+	t.Helper()
+	b := &gnmi.SetBatch{}
+	for _, p := range dut.Ports() {
+		name, enabled := p.Name(), true
+		gnmi.BatchUpdate(b, gnmi.OC().Interface(p.Name()).Config(), &oc.Interface{
+			Name:    &name,
+			Type:    oc.IETFInterfaces_InterfaceType_ethernetCsmacd,
+			Enabled: &enabled,
+		})
+	}
+	b.Set(t, dut)
+}
+
 // DUTPortSlots returns the linecard slot of every DUT port in the testbed,
 // keyed by interface name, using the vendor's interface naming convention.
 func DUTPortSlots(t testing.TB, dut *ondatra.DUTDevice) map[string]int {

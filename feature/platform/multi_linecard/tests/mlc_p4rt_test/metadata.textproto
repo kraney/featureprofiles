@@ -1,0 +1,7 @@
+# proto-file: github.com/openconfig/featureprofiles/proto/metadata.proto
+# proto-message: Metadata
+
+uuid: "b0410c8e-1df2-482d-9f55-be89376d8e4d"
+plan_id: "PLT-MLC-2"
+description: "Multi-linecard readiness: per-chip P4Runtime and packet I/O"
+testbed: TESTBED_DUT_ATE_4LINKS

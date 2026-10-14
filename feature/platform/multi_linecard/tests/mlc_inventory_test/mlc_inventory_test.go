@@ -28,18 +28,14 @@ import (
 
 	"github.com/openconfig/featureprofiles/internal/fptest"
 	"github.com/openconfig/featureprofiles/internal/mlc"
+	gpb "github.com/openconfig/gnmi/proto/gnmi"
 	"github.com/openconfig/ondatra"
 	"github.com/openconfig/ondatra/gnmi"
 	"github.com/openconfig/ondatra/gnmi/oc"
 	"github.com/openconfig/ygnmi/ygnmi"
-	gpb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
-const (
-	// nodeIDBase is the first P4RT node-id assigned to an integrated circuit.
-	nodeIDBase = 0x4d4c43000000 // "MLC" followed by zeros.
-	linkTimeout = 2 * time.Minute
-)
+const linkTimeout = 2 * time.Minute
 
 func TestMain(m *testing.M) {
 	fptest.RunTests(m)
@@ -73,7 +69,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	sort.Ints(f.wantSlots)
 
-	enablePorts(t, dut)
+	mlc.EnablePorts(t, dut)
 	f.inv = mlc.Discover(t, dut)
 	for _, lc := range f.inv.Linecards() {
 		if s, ok := f.slotOf(lc); ok {
@@ -97,23 +93,6 @@ func (f *fixture) slotOf(lc string) (int, bool) {
 	}
 	return 0, false
 }
-
-func enablePorts(t *testing.T, dut *ondatra.DUTDevice) {
-	t.Helper()
-	b := &gnmi.SetBatch{}
-	for _, p := range dut.Ports() {
-		i := &oc.Interface{
-			Name:    ygotString(p.Name()),
-			Type:    oc.IETFInterfaces_InterfaceType_ethernetCsmacd,
-			Enabled: ygotBool(true),
-		}
-		gnmi.BatchUpdate(b, gnmi.OC().Interface(p.Name()).Config(), i)
-	}
-	b.Set(t, dut)
-}
-
-func ygotString(s string) *string { return &s }
-func ygotBool(b bool) *bool       { return &b }
 
 func logInventory(t *testing.T, f *fixture) {
 	t.Helper()
@@ -243,33 +222,11 @@ func TestMLCInventory(t *testing.T) {
 		// A controller configures node-id on the ICs it expects from its model,
 		// whether or not the device advertised them, so configure both the
 		// discovered ICs and the conventionally named ICs of each populated slot.
-		set := map[string]bool{}
-		for _, ic := range f.inv.ICs() {
-			set[ic] = true
-		}
-		if f.hasNaming {
-			for _, s := range f.wantSlots {
-				for c := 0; c < *mlc.MinICsPerLinecard; c++ {
-					set[f.naming.ICName(s, c)] = true
-				}
-			}
-		}
-		ics := keys(set)
+		ics := mlc.TargetICs(f.dut, f.inv, f.wantSlots)
 		if len(ics) == 0 {
 			t.Fatal("no INTEGRATED_CIRCUIT components to configure")
 		}
-		want := map[string]uint64{}
-		for i, ic := range ics {
-			id := uint64(nodeIDBase + i + 1)
-			ok := fptest.NonFatal(t, func(t testing.TB) {
-				gnmi.Replace(t, f.dut, gnmi.OC().Component(ic).IntegratedCircuit().NodeId().Config(), id)
-			})
-			if !ok {
-				t.Errorf("%s: gNMI Set of integrated-circuit/config/node-id rejected", ic)
-				continue
-			}
-			want[ic] = id
-		}
+		want := mlc.ConfigureNodeIDs(t, f.dut, ics)
 		for _, ic := range keys(boolKeys(want)) {
 			id := want[ic]
 			w := gnmi.Watch(t, f.dut, gnmi.OC().Component(ic).IntegratedCircuit().NodeId().State(), time.Minute, func(v *ygnmi.Value[uint64]) bool {
