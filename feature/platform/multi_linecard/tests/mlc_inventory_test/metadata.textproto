@@ -1,0 +1,7 @@
+# proto-file: github.com/openconfig/featureprofiles/proto/metadata.proto
+# proto-message: Metadata
+
+uuid: "965caadf-e2fc-418e-a88c-255a2b027239"
+plan_id: "PLT-MLC-1"
+description: "Multi-linecard readiness: inventory and telemetry"
+testbed: TESTBED_DUT_ATE_4LINKS

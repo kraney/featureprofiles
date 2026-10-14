@@ -1,0 +1,116 @@
+# proto-file: github.com/openconfig/kne/proto/topo.proto
+# proto-message: Topology
+#
+# Multi-linecard readiness topology for Nokia SR Linux.
+#
+# Models a 7250 IXR-10e with imm36-400g-qsfpdd linecards in slots 1 and 2. Each
+# linecard has two forwarding complexes. One DUT port is placed on each complex
+# (ports 1 and 19 are assumed to sit on complexes 0 and 1), so the four ATE links
+# cover every forwarding complex on both linecards.
+#
+# See feature/platform/multi_linecard/README.md, requirement MLC-KNE-001. As of
+# this writing srl-controller generates a namespace-wide srlinux-variants
+# ConfigMap that populates only slot 1 for modular models, and KNE has no field
+# to request more slots. Once Nokia provides one, add it to the node below.
+name: "nokia-srlinux-mlc-dutate"
+nodes: {
+    name: "dut"
+    vendor: NOKIA
+    model: "ixr10e"
+    config: {
+        image: "srlinux:latest"
+        file: "config.cfg"
+        cert: {
+            self_signed: {
+                cert_name: "kne-profile"
+                key_name: "N/A"
+                key_size: 4096
+            }
+        }
+    }
+    services: {
+        key: 9339
+        value: {
+            name: "gnmi"
+            inside: 9339
+        }
+    }
+    services: {
+        key: 9340
+        value: {
+            name: "gribi"
+            inside: 9340
+        }
+    }
+    services: {
+        key: 22
+        value: {
+            name: "ssh"
+            inside: 22
+        }
+    }
+    services: {
+        key: 9559
+        value: {
+            name: "p4rt"
+            inside: 9559
+        }
+    }
+    # Linecard 1, complex 0.
+    interfaces: {
+        key: "e1-1"
+        value: {
+            name: "ethernet-1/1"
+        }
+    }
+    # Linecard 1, complex 1.
+    interfaces: {
+        key: "e1-19"
+        value: {
+            name: "ethernet-1/19"
+        }
+    }
+    # Linecard 2, complex 0.
+    interfaces: {
+        key: "e2-1"
+        value: {
+            name: "ethernet-2/1"
+        }
+    }
+    # Linecard 2, complex 1.
+    interfaces: {
+        key: "e2-19"
+        value: {
+            name: "ethernet-2/19"
+        }
+    }
+}
+nodes: {
+    name: "otg"
+    vendor: KEYSIGHT
+    version: "0.0.1-9999" # Please update this with the local version from ixiatg-configmap.yaml
+}
+links: {
+    a_node: "dut"
+    a_int: "e1-1"
+    z_node: "otg"
+    z_int: "eth1"
+}
+links: {
+    a_node: "dut"
+    a_int: "e1-19"
+    z_node: "otg"
+    z_int: "eth2"
+}
+links: {
+    a_node: "dut"
+    a_int: "e2-1"
+    z_node: "otg"
+    z_int: "eth3"
+}
+links: {
+    a_node: "dut"
+    a_int: "e2-19"
+    z_node: "otg"
+    z_int: "eth4"
+}

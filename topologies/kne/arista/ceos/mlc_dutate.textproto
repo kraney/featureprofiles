@@ -1,0 +1,126 @@
+# proto-file: github.com/openconfig/kne/proto/topo.proto
+# proto-message: Topology
+#
+# Multi-linecard readiness topology for Arista cEOS.
+#
+# Models a DCS-7808 modular chassis with DCS-7800R3AK-36DM linecards in slots 3
+# and 4. Each linecard has two forwarding chips: ports 1-18 belong to
+# SwitchChip<slot>/0 and ports 19-36 to SwitchChip<slot>/1. One DUT port is
+# placed on each chip, so the four ATE links cover every chip on both linecards.
+#
+# See feature/platform/multi_linecard/README.md, requirement MLC-KNE-001. As of
+# this writing there is no KNE or cEOS knob to declare a chassis model or linecard
+# population, so cEOS boots as a fixed cEOSLab. Once Arista provides one, add it
+# to the node below (for example under config.vendor_data).
+name: "arista-ceos-mlc-dutate"
+nodes: {
+    name: "dut"
+    vendor: ARISTA
+    model: "ceos"
+    os: "eos"
+    config: {
+        image: "ceos:latest"
+        file: "config.cfg"
+        config_path: "/mnt/flash"
+        config_file: "startup-config"
+        cert: {
+            self_signed: {
+                cert_name: "gnmiCert.pem"
+                key_name: "gnmiCertKey.pem"
+                key_size: 4096
+            }
+        }
+    }
+    services: {
+        key: 22
+        value: {
+            name: "ssh"
+            inside: 22
+        }
+    }
+    services: {
+        key: 443
+        value: {
+            name: "ssl"
+            inside: 443
+        }
+    }
+    services: {
+        key: 9339
+        value: {
+            name: "gnmi"
+            inside: 9339
+        }
+    }
+    services: {
+        key: 9340
+        value: {
+            name: "gribi"
+            inside: 9340
+        }
+    }
+    services: {
+        key: 9559
+        value: {
+            name: "p4rt"
+            inside: 9559
+        }
+    }
+    # Linecard 3, SwitchChip3/0.
+    interfaces: {
+        key: "eth1"
+        value: {
+            name: "Ethernet3/1/1"
+        }
+    }
+    # Linecard 3, SwitchChip3/1.
+    interfaces: {
+        key: "eth2"
+        value: {
+            name: "Ethernet3/19/1"
+        }
+    }
+    # Linecard 4, SwitchChip4/0.
+    interfaces: {
+        key: "eth3"
+        value: {
+            name: "Ethernet4/1/1"
+        }
+    }
+    # Linecard 4, SwitchChip4/1.
+    interfaces: {
+        key: "eth4"
+        value: {
+            name: "Ethernet4/19/1"
+        }
+    }
+}
+nodes: {
+    name: "otg"
+    vendor: KEYSIGHT
+    version: "0.0.1-9999" # Please update this with the local version from ixiatg-configmap.yaml
+}
+links: {
+    a_node: "dut"
+    a_int: "eth1"
+    z_node: "otg"
+    z_int: "eth1"
+}
+links: {
+    a_node: "dut"
+    a_int: "eth2"
+    z_node: "otg"
+    z_int: "eth2"
+}
+links: {
+    a_node: "dut"
+    a_int: "eth3"
+    z_node: "otg"
+    z_int: "eth3"
+}
+links: {
+    a_node: "dut"
+    a_int: "eth4"
+    z_node: "otg"
+    z_int: "eth4"
+}
