@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openconfig/featureprofiles/internal/fptest"
 	"github.com/openconfig/ondatra"
 	"github.com/openconfig/ondatra/gnmi"
 	"github.com/openconfig/ondatra/gnmi/oc"
@@ -37,14 +36,26 @@ import (
 // circuit.
 const NodeIDBase = 0x4d4c43000000 // "MLC" followed by zeros.
 
-// TargetICs returns the ICs a controller would program: every discovered
-// INTEGRATED_CIRCUIT plus the conventionally named chips of every slot that
-// holds a DUT port. A controller configures node-id on the chips in its model
-// whether or not the device advertised them.
+// TargetICs returns the ICs a controller would program: the conventionally
+// named chips of every slot that holds a DUT port, plus every discovered
+// INTEGRATED_CIRCUIT that is on one of those slots or is not on a linecard at
+// all. A controller configures node-id on the chips in its model whether or not
+// the device advertised them; chips on unpopulated slots are left alone.
 func TargetICs(dut *ondatra.DUTDevice, inv *Inventory, slots []int) []string {
+	want := map[int]bool{}
+	for _, s := range slots {
+		want[s] = true
+	}
 	set := map[string]bool{}
 	for _, ic := range inv.ICs() {
-		set[ic] = true
+		p := inv.Components[inv.Components[ic].Parent]
+		if p == nil || p.Type != oc.PlatformTypes_OPENCONFIG_HARDWARE_COMPONENT_LINECARD.String() {
+			set[ic] = true
+			continue
+		}
+		if s, err := strconv.Atoi(p.SlotID); err == nil && want[s] {
+			set[ic] = true
+		}
 	}
 	if n, ok := NamingFor(dut); ok {
 		for _, s := range slots {
@@ -90,20 +101,26 @@ func ConfigureNodeIDs(t *testing.T, dut *ondatra.DUTDevice, inv *Inventory, ics 
 	for i, ic := range ics {
 		id := uint64(NodeIDBase + i + 1)
 		// The component list key is a leafref to config/name, so set both.
-		d := &oc.Root{}
-		d.GetOrCreateComponent(ic).GetOrCreateIntegratedCircuit().NodeId = &id
-		if lc := parentLinecard(dut, inv, ic); lc != "" {
-			d.GetOrCreateComponent(lc)
-		}
-		ok := fptest.NonFatal(t, func(t testing.TB) {
+		set := func(t testing.TB, withParent bool) {
 			b := &gnmi.SetBatch{}
+			d := &oc.Root{}
+			d.GetOrCreateComponent(ic).GetOrCreateIntegratedCircuit().NodeId = &id
+			if lc := parentLinecard(dut, inv, ic); withParent && lc != "" {
+				d.GetOrCreateComponent(lc)
+			}
 			for _, c := range d.Component {
 				gnmi.BatchUpdate(b, gnmi.OC().Component(*c.Name).Config(), c)
 			}
 			b.Set(t, dut)
-		})
-		if !ok {
-			t.Errorf("%s: gNMI Set of integrated-circuit/config/node-id rejected", ic)
+		}
+		// Try the IC alone first; some devices then require the parent linecard
+		// component to be declared as well, while others reject configuring it.
+		msg := Try(t, func(t testing.TB) { set(t, false) })
+		if msg != nil {
+			msg = Try(t, func(t testing.TB) { set(t, true) })
+		}
+		if msg != nil {
+			t.Errorf("%s: gNMI Set of integrated-circuit/config/node-id rejected: %s", ic, *msg)
 			continue
 		}
 		got[ic] = id

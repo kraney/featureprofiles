@@ -25,6 +25,7 @@ import (
 	"net"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,7 +54,7 @@ const (
 	metadataIngressPort = 1
 	arbTimeout          = 10 * time.Second
 	registerTimeout     = 90 * time.Second
-	punTimeout          = 20 * time.Second
+	puntTimeout         = 20 * time.Second
 )
 
 // Election IDs increase across runs because some servers remember the highest
@@ -80,7 +81,12 @@ type fixture struct {
 	lastIngressPorts map[string]string
 }
 
-func srcMAC(i int) string { return fmt.Sprintf("02:4d:4c:43:00:%02x", i+1) }
+// srcMAC returns the LLDP source MAC used for the ATE port linked to the DUT
+// port with the same testbed ID (port<N>), so a PacketIn identifies its port.
+func srcMAC(portID string) string {
+	n, _ := strconv.Atoi(strings.TrimPrefix(portID, "port"))
+	return fmt.Sprintf("02:4d:4c:43:00:%02x", n)
+}
 
 func newFixture(t *testing.T) *fixture {
 	dut := ondatra.DUT(t, "dut")
@@ -255,8 +261,8 @@ func TestMLCP4RT(t *testing.T) {
 			devToIC[id] = ic
 		}
 		punting := map[string]bool{}
-		for i, p := range f.dut.Ports() {
-			mac := srcMAC(i)
+		for _, p := range f.dut.Ports() {
+			mac := srcMAC(p.ID())
 			devs := seen[mac]
 			if len(devs) == 0 {
 				t.Errorf("%s: no PacketIn for LLDP sent into this port", p.Name())
@@ -292,9 +298,9 @@ func TestMLCP4RT(t *testing.T) {
 		if got == nil {
 			got = f.sendLLDPAndIngress(t)
 		}
-		for i, p := range f.dut.Ports() {
+		for _, p := range f.dut.Ports() {
 			want := strconv.Itoa(int(f.portIDs[p.Name()]))
-			if v, ok := got[srcMAC(i)]; !ok {
+			if v, ok := got[srcMAC(p.ID())]; !ok {
 				t.Errorf("%s: no PacketIn to check ingress_port", p.Name())
 			} else if v != want {
 				t.Errorf("%s: PacketIn ingress_port = %q, want %q", p.Name(), v, want)
@@ -307,6 +313,10 @@ func TestMLCP4RT(t *testing.T) {
 			t.Fatal("no primary streams (see MLC-P4RT-001)")
 		}
 		before := mlc.Discover(t, f.dut)
+		wasUp := map[string]bool{}
+		for _, p := range f.dut.Ports() {
+			wasUp[p.Name()] = gnmi.Get(t, f.dut, gnmi.OC().Interface(p.Name()).OperStatus().State()) == oc.Interface_OperStatus_UP
+		}
 		newStreams := map[string]*mlc.Stream{}
 		for ic, old := range f.streams {
 			s, err := mlc.OpenStream(f.client, f.nodeIDs[ic])
@@ -343,6 +353,9 @@ func TestMLCP4RT(t *testing.T) {
 			}
 		}
 		for _, p := range f.dut.Ports() {
+			if !wasUp[p.Name()] {
+				continue
+			}
 			if st := gnmi.Get(t, f.dut, gnmi.OC().Interface(p.Name()).OperStatus().State()); st != oc.Interface_OperStatus_UP {
 				t.Errorf("%s oper-status = %v after re-arbitration, want UP", p.Name(), st)
 			}
@@ -356,13 +369,13 @@ func TestMLCP4RT(t *testing.T) {
 func (f *fixture) sendLLDPAndCollect(t *testing.T) map[string]map[uint64]bool {
 	t.Helper()
 	cfg := gosnappi.NewConfig()
-	for i, p := range f.ate.Ports() {
+	for _, p := range f.ate.Ports() {
 		cfg.Ports().Add().SetName(p.ID())
 		fl := cfg.Flows().Add().SetName("lldp_" + p.ID())
 		fl.Metrics().SetEnable(true)
 		fl.TxRx().Port().SetTxName(p.ID())
 		eth := fl.Packet().Add().Ethernet()
-		eth.Src().SetValue(srcMAC(i))
+		eth.Src().SetValue(srcMAC(p.ID()))
 		eth.Dst().SetValue(lldpDstMAC)
 		eth.EtherType().SetValue(lldpEtherType)
 		fl.Size().SetFixed(128)
@@ -370,15 +383,10 @@ func (f *fixture) sendLLDPAndCollect(t *testing.T) map[string]map[uint64]bool {
 		fl.Duration().FixedPackets().SetPackets(10)
 	}
 	f.ate.OTG().PushConfig(t, cfg)
-	// Map ATE port order back to DUT port order so srcMAC(i) identifies a DUT port.
-	ateToDUT := map[string]int{}
-	for i, p := range f.dut.Ports() {
-		ateToDUT[p.ID()] = i
-	}
 	f.ate.OTG().StartTraffic(t)
 	seen := map[string]map[uint64]bool{}
 	f.lastIngressPorts = map[string]string{}
-	deadline := time.After(punTimeout)
+	deadline := time.After(puntTimeout)
 	for done := false; !done; {
 		select {
 		case <-deadline:
@@ -405,23 +413,7 @@ func (f *fixture) sendLLDPAndCollect(t *testing.T) map[string]map[uint64]bool {
 	}
 	f.ate.OTG().StopTraffic(t)
 	f.logPuntDiagnostics(t)
-	// Re-key from ATE-port MAC index to DUT-port MAC index (same port ID order).
-	out := map[string]map[uint64]bool{}
-	outIngress := map[string]string{}
-	for i, p := range f.ate.Ports() {
-		di, ok := ateToDUT[p.ID()]
-		if !ok {
-			continue
-		}
-		if v, ok := seen[srcMAC(i)]; ok {
-			out[srcMAC(di)] = v
-		}
-		if v, ok := f.lastIngressPorts[srcMAC(i)]; ok {
-			outIngress[srcMAC(di)] = v
-		}
-	}
-	f.lastIngressPorts = outIngress
-	return out
+	return seen
 }
 
 func (f *fixture) sendLLDPAndIngress(t *testing.T) map[string]string {

@@ -27,10 +27,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openconfig/featureprofiles/internal/fptest"
 	"github.com/openconfig/ondatra"
 	"github.com/openconfig/ondatra/gnmi"
 	"github.com/openconfig/ondatra/gnmi/oc"
+	"github.com/openconfig/testt"
 	"github.com/openconfig/ygnmi/ygnmi"
 
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
@@ -293,6 +293,13 @@ func (inv *Inventory) PortsByIC() map[string][]string {
 	return out
 }
 
+// Try runs f and returns its fatal message, or nil if it did not call Fatal.
+// Unlike fptest.NonFatal it does not mark the test as failed, so callers can
+// retry or fall back.
+func Try(t testing.TB, f func(t testing.TB)) *string {
+	return testt.CaptureFatal(t, f)
+}
+
 // EnablePorts administratively enables every DUT port in the testbed. A freshly
 // booted device may reject configuration until it finishes initializing, so the
 // Set is retried for up to five minutes.
@@ -308,7 +315,7 @@ func EnablePorts(t testing.TB, dut *ondatra.DUTDevice) {
 		})
 	}
 	deadline := time.Now().Add(5 * time.Minute)
-	for !fptest.NonFatal(t, func(t testing.TB) { b.Set(t, dut) }) {
+	for Try(t, func(t testing.TB) { b.Set(t, dut) }) != nil {
 		if time.Now().After(deadline) {
 			t.Fatal("DUT did not accept interface configuration within 5 minutes")
 		}

@@ -428,6 +428,13 @@ func (f *fixture) lagMembers(t *testing.T, ingress int) []int {
 
 func (f *fixture) configureLAG(t *testing.T, aggID string, members []int, a attrs.Attributes) {
 	t.Helper()
+	if deviations.ExplicitInterfaceInDefaultVRF(f.dut) {
+		// Members can no longer carry their own routed subinterface.
+		ni := deviations.DefaultNetworkInstance(f.dut)
+		for _, m := range members {
+			gnmi.Delete(t, f.dut, gnmi.OC().NetworkInstance(ni).Interface(f.ports[m].Name()+".0").Config())
+		}
+	}
 	if deviations.AggregateAtomicUpdate(f.dut) {
 		d := &oc.Root{}
 		agg := d.GetOrCreateInterface(aggID)
