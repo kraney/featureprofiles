@@ -39,9 +39,9 @@ import (
 )
 
 const (
-	linecardTimeout = 10 * time.Minute
+	linecardTimeout = 5 * time.Minute
 	rebootDownWait  = 5 * time.Minute
-	rebootUpWait    = 20 * time.Minute
+	rebootUpWait    = 15 * time.Minute
 	linkTimeout     = 5 * time.Minute
 	arbTimeout      = 10 * time.Second
 	registerTimeout = 3 * time.Minute

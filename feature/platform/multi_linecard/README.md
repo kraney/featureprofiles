@@ -50,6 +50,8 @@ go test ./feature/platform/multi_linecard/... \
 ```
 
 Use `-run 'TestMLCInventory/MLC-INV-002'` to iterate on a single requirement.
+`mlc_lifecycle_test` reboots the DUT and waits for linecard events, so give it
+`-timeout 90m`.
 
 ## Tests
 
