@@ -333,22 +333,23 @@ func TestMLCInventory(t *testing.T) {
 	})
 
 	t.Run("MLC-INV-010_BackplaneCapacityPerIC", func(t *testing.T) {
-		ups := mlc.RawOnce(t, f.dut, "/components/component[name=*]/integrated-circuit/backplane-facing-capacity/state/total-operational-capacity", gpb.Encoding_PROTO)
-		got := map[string]bool{}
-		for _, u := range ups {
-			got[keyOf(u.GetPath(), "component")] = true
-		}
+		// A controller consumes these counters from a STREAM subscription, so
+		// accept a value from either the initial snapshot or the stream.
 		checked := 0
 		for _, lc := range f.populatedLinecards() {
 			for _, ic := range f.inv.ICsOnLinecard(lc) {
 				checked++
-				if !got[ic] {
-					t.Errorf("IC %q: backplane-facing-capacity/state/total-operational-capacity not streamed", ic)
+				q := gnmi.OC().Component(ic).IntegratedCircuit().BackplaneFacingCapacity().TotalOperationalCapacity().State()
+				if _, ok := gnmi.Watch(t, f.dut, q, 30*time.Second, func(v *ygnmi.Value[uint64]) bool {
+					_, present := v.Val()
+					return present
+				}).Await(t); !ok {
+					t.Errorf("IC %q: backplane-facing-capacity/state/total-operational-capacity not streamed within 30s", ic)
 				}
 			}
 		}
 		if checked == 0 {
-			t.Errorf("no linecard ICs to check; streamed for %v", keys(got))
+			t.Error("no ICs on populated linecards to check")
 		}
 	})
 
@@ -360,14 +361,19 @@ func TestMLCInventory(t *testing.T) {
 		if len(lcs) == 0 {
 			t.Skip("no LINECARD components to inspect")
 		}
+		seen := 0
 		for _, u := range mlc.RawOnce(t, f.dut, "/components/component[name=*]/state/oper-status", gpb.Encoding_PROTO) {
 			name := keyOf(u.GetPath(), "component")
 			if !lcs[name] {
 				continue
 			}
+			seen++
 			if v := u.GetVal().GetStringVal(); strings.Contains(v, ":") {
 				t.Errorf("%s oper-status string_val = %q, want an unprefixed identity (e.g. ACTIVE)", name, v)
 			}
+		}
+		if seen == 0 {
+			t.Error("no LINECARD oper-status received in a PROTO-encoded Subscribe")
 		}
 	})
 

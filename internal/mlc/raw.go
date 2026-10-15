@@ -62,6 +62,15 @@ func RawOnce(t testing.TB, dut *ondatra.DUTDevice, path string, enc gpb.Encoding
 		if resp.GetSyncResponse() {
 			return out
 		}
-		out = append(out, resp.GetUpdate().GetUpdate()...)
+		// Fold the notification prefix into each update path so callers can
+		// read keys regardless of how the device splits prefix and path.
+		prefix := resp.GetUpdate().GetPrefix().GetElem()
+		for _, u := range resp.GetUpdate().GetUpdate() {
+			if len(prefix) > 0 {
+				p := &gpb.Path{Origin: u.GetPath().GetOrigin(), Elem: append(append([]*gpb.PathElem{}, prefix...), u.GetPath().GetElem()...)}
+				u = &gpb.Update{Path: p, Val: u.GetVal(), Duplicates: u.GetDuplicates()}
+			}
+			out = append(out, u)
+		}
 	}
 }
