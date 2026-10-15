@@ -25,6 +25,7 @@ Each subtest is named after the requirement it checks:
 *   `MLC-INV-004`
 *   `MLC-INV-006`
 *   `MLC-KNE-003`
+*   `MLC-INV-012`
 *   `MLC-INV-005`
 *   `MLC-INV-009`
 *   `MLC-INV-010`

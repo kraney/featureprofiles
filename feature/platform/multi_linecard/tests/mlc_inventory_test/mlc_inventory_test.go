@@ -285,6 +285,31 @@ func TestMLCInventory(t *testing.T) {
 		}
 	})
 
+	t.Run("MLC-INV-012_PortToLinecardOwnership", func(t *testing.T) {
+		// A controller scopes linecard events (drain, power-off, reboot) to the
+		// ports owned by that linecard's ICs, so each port's owning IC must sit
+		// on the port's own linecard. This holds even if a linecard models
+		// fewer ICs than the real card (see MLC-INV-005).
+		for _, p := range f.dut.Ports() {
+			ic, err := f.inv.OwningIC(p.Name())
+			if err != nil {
+				t.Errorf("%s: %v", p.ID(), err)
+				continue
+			}
+			s, ok := f.portSlot[p.Name()]
+			if !ok {
+				continue
+			}
+			want, hasLC := f.lcBySlot[s]
+			if lc := f.inv.Components[ic].Parent; !hasLC || want != lc {
+				if !hasLC || want == "" {
+					want = fmt.Sprintf("the slot-%d linecard (no LINECARD component found for that slot)", s)
+				}
+				t.Errorf("interface %q (slot %d) is owned by IC %q on %q, want an IC on %s", p.Name(), s, ic, lc, want)
+			}
+		}
+	})
+
 	t.Run("MLC-INV-005_PortToICMapping", func(t *testing.T) {
 		icsPerSlot := map[int]map[string]bool{}
 		for _, p := range f.dut.Ports() {
@@ -293,11 +318,7 @@ func TestMLCInventory(t *testing.T) {
 				t.Errorf("%s: %v", p.ID(), err)
 				continue
 			}
-			lc := f.inv.Components[ic].Parent
-			s, ok := f.portSlot[p.Name()]
-			if ok && f.lcBySlot[s] != lc {
-				t.Errorf("interface %q (slot %d) is owned by IC %q on %q, want an IC on %q", p.Name(), s, ic, lc, f.lcBySlot[s])
-			}
+			s := f.portSlot[p.Name()]
 			if icsPerSlot[s] == nil {
 				icsPerSlot[s] = map[string]bool{}
 			}

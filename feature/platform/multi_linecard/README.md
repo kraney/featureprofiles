@@ -77,9 +77,10 @@ controller-side workaround, or is informational.
 | MLC-KNE-005 | P2 | Documented, stable resource footprint for multi-slot nodes. | Observed during all tests |
 | MLC-INV-001 | P0 | A `LINECARD` component exists per populated slot, with `linecard/state/slot-id`. | `TestMLCInventory/MLC-INV-001` |
 | MLC-INV-002 | P0 | `/components/component[name=<linecard>]/state/oper-status` is `ACTIVE` in every initial Subscribe snapshot (before `sync_response`), including resubscriptions. | `TestMLCInventory/MLC-INV-002` |
-| MLC-INV-003 | P0 | One `INTEGRATED_CIRCUIT` component per forwarding chip, with `state/parent` set to its linecard. | `TestMLCInventory/MLC-INV-003` |
+| MLC-INV-003 | P2 | One `INTEGRATED_CIRCUIT` component per forwarding chip, with `state/parent` set to its linecard. Fewer ICs than the real card is tolerable if `MLC-INV-012` holds. | `TestMLCInventory/MLC-INV-003` |
 | MLC-INV-004 | P0 | `integrated-circuit/config/node-id` is accepted on every IC, and `state/node-id` is streamed in every initial snapshot. | `TestMLCInventory/MLC-INV-004` |
-| MLC-INV-005 | P1 | Interface `state/hardware-port` points to a `PORT` component whose `state/parent` is the IC that owns the port. Ports are split across ICs as on real hardware. | `TestMLCInventory/MLC-INV-005` |
+| MLC-INV-005 | P2 | Interface `state/hardware-port` points to a `PORT` component whose `state/parent` is the IC that owns the port. Ports are split across ICs as on real hardware. | `TestMLCInventory/MLC-INV-005` |
+| MLC-INV-012 | P1 | Every port's owning IC is on the port's own linecard, so linecard-scoped events (drain, power-off, reboot) affect exactly that linecard's ports. | `TestMLCInventory/MLC-INV-012` |
 | MLC-INV-006 | P0 | Interfaces on every linecard use modular names and stream oper-status and port-speed. | `TestMLCInventory/MLC-INV-006` |
 | MLC-INV-007 | P1 | Interface counters stream for interfaces on every linecard. | `TestMLCDataplane/MLC-INV-007` |
 | MLC-INV-008 | P1 | A LAG with members on different linecards comes up and reports every member. | `TestMLCDataplane/MLC-INV-008` |
@@ -93,7 +94,7 @@ controller-side workaround, or is informational.
 | MLC-GRIBI-001 | P1 | gRIBI next-hop groups with next hops on different linecards program and forward. | `TestMLCDataplane/MLC-GRIBI-001` |
 | MLC-GRIBI-002 | P2 | gRIBI entries survive a client reconnect with a higher election ID. | `TestMLCDataplane/MLC-GRIBI-002` |
 | MLC-DP-001 | P1 | Traffic is forwarded between ports on different linecards and ICs. | `TestMLCDataplane/MLC-DP-001` |
-| MLC-DP-002 | P1 | A punted packet arrives only on the stream of the IC that owns the ingress port. Works for LLDP on every linecard. | `TestMLCP4RT/MLC-DP-002` |
+| MLC-DP-002 | P1 | A punted packet arrives only on the stream of the IC that owns the ingress port. Works for LLDP on every linecard. Without it, a controller that relies on LLDP cannot verify wiring, so a wrong neighbor goes undetected. | `TestMLCP4RT/MLC-DP-002` |
 | MLC-DP-003 | P2 | Cross-linecard forwarding continues while controller sessions reconnect. | `TestMLCDataplane/MLC-DP-003` |
 | MLC-LC-001 | P1 | gNOI `System.Reboot(COLD)` restarts the chassis. Afterwards every linecard is `ACTIVE`, every IC streams node-id and arbitrates, and every port is `UP`. | `TestMLCLifecycle/MLC-LC-001` |
 | MLC-LC-002 | P1 | Linecard oper-status changes stream ON_CHANGE. Its interfaces send oper-status updates, not only deletes. Other linecards are unaffected. | `TestMLCLifecycle/MLC-LC-002` |
