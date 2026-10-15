@@ -329,9 +329,18 @@ func TestMLCDataplane(t *testing.T) {
 	})
 
 	t.Run("MLC-INV-008_LAGAcrossLinecards", func(t *testing.T) {
-		members := f.lagMembers(t, in)
+		// Pick the members first (emulated ATEs may require specific ports),
+		// then any other port as the ingress.
+		members := f.lagMembers(t, -1)
 		if len(members) != 2 {
-			t.Fatalf("could not find two LAG member ports on different linecards (excluding ingress %s)", f.ports[in].Name())
+			t.Fatal("could not find two LAG member ports on different linecards")
+		}
+		in := -1
+		for i := range f.ports {
+			if i != members[0] && i != members[1] {
+				in = i
+				break
+			}
 		}
 		aggID := netutil.NextAggregateInterface(t, f.dut)
 		lagDUT := attrs.Attributes{Desc: "mlcLag", IPv4: "192.0.2.65", IPv4Len: plen}
