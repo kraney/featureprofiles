@@ -780,6 +780,30 @@ test: {
   exec: "https://github.com/openconfig/featureprofiles/blob/main/feature/platform/tests/breakout_subscription_test/breakout_subscription_test.go"
 }
 test: {
+  id: "PLT-MLC-1"
+  description: "Multi-linecard readiness: inventory and telemetry"
+  readme: "https://github.com/openconfig/featureprofiles/blob/main/feature/platform/multi_linecard/tests/mlc_inventory_test/README.md"
+  exec: "https://github.com/openconfig/featureprofiles/blob/main/feature/platform/multi_linecard/tests/mlc_inventory_test/mlc_inventory_test.go"
+}
+test: {
+  id: "PLT-MLC-2"
+  description: "Multi-linecard readiness: per-chip P4Runtime and packet I/O"
+  readme: "https://github.com/openconfig/featureprofiles/blob/main/feature/platform/multi_linecard/tests/mlc_p4rt_test/README.md"
+  exec: "https://github.com/openconfig/featureprofiles/blob/main/feature/platform/multi_linecard/tests/mlc_p4rt_test/mlc_p4rt_test.go"
+}
+test: {
+  id: "PLT-MLC-3"
+  description: "Multi-linecard readiness: cross-linecard forwarding, gRIBI and LAG"
+  readme: "https://github.com/openconfig/featureprofiles/blob/main/feature/platform/multi_linecard/otg_tests/mlc_dataplane_test/README.md"
+  exec: "https://github.com/openconfig/featureprofiles/blob/main/feature/platform/multi_linecard/otg_tests/mlc_dataplane_test/mlc_dataplane_test.go"
+}
+test: {
+  id: "PLT-MLC-4"
+  description: "Multi-linecard readiness: linecard and chassis lifecycle"
+  readme: "https://github.com/openconfig/featureprofiles/blob/main/feature/platform/multi_linecard/tests/mlc_lifecycle_test/README.md"
+  exec: "https://github.com/openconfig/featureprofiles/blob/main/feature/platform/multi_linecard/tests/mlc_lifecycle_test/mlc_lifecycle_test.go"
+}
+test: {
   id: "Pathz-1"
   description: "Path-level Authorization (1-4) tests"
   readme: "https://github.com/openconfig/featureprofiles/blob/main/feature/gnsi/pathz/tests/pathz/README.md"
