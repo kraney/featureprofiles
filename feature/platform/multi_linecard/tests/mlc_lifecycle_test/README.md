@@ -28,8 +28,11 @@ Each subtest is named after the requirement it checks:
 ```yaml
 paths:
   /components/component/state/oper-status:
+    platform_type: ["LINECARD"]
   /components/component/linecard/config/power-admin-state:
+    platform_type: ["LINECARD"]
   /components/component/integrated-circuit/state/node-id:
+    platform_type: ["INTEGRATED_CIRCUIT"]
   /interfaces/interface/state/oper-status:
 
 rpcs:
@@ -40,6 +43,28 @@ rpcs:
     system.System.Reboot:
   p4rt:
     P4Runtime.StreamChannel:
+```
+
+#### Canonical OC
+
+```json
+{
+  "components": {
+    "component": [
+      {
+        "config": {
+          "name": "Linecard0"
+        },
+        "linecard": {
+          "config": {
+            "power-admin-state": "POWER_DISABLED"
+          }
+        },
+        "name": "Linecard0"
+      }
+    ]
+  }
+}
 ```
 
 ## Required DUT platform

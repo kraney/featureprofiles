@@ -16,6 +16,7 @@ package mlc
 
 import (
 	"context"
+	"io"
 	"testing"
 	"time"
 
@@ -25,13 +26,14 @@ import (
 	gpb "github.com/openconfig/gnmi/proto/gnmi"
 )
 
-// WaitForGNMI polls the DUT until a gNMI Get succeeds or the timeout expires.
-// It returns false on timeout.
+// WaitForGNMI polls the DUT until a gNMI Subscribe ONCE succeeds or the timeout
+// expires. It returns false on timeout.
 func WaitForGNMI(t *testing.T, dut *ondatra.DUTDevice, timeout time.Duration) bool {
 	t.Helper()
+	gnmiC := dut.RawAPIs().GNMI(t)
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if gnmiReachable(t, dut) {
+		if gnmiReachable(gnmiC) {
 			return true
 		}
 		time.Sleep(10 * time.Second)
@@ -39,13 +41,14 @@ func WaitForGNMI(t *testing.T, dut *ondatra.DUTDevice, timeout time.Duration) bo
 	return false
 }
 
-// WaitForGNMIDown polls the DUT until a gNMI Get fails, indicating it has
-// started rebooting. It returns false if the DUT stayed reachable.
+// WaitForGNMIDown polls the DUT until a gNMI Subscribe ONCE fails, indicating
+// it has started rebooting. It returns false if the DUT stayed reachable.
 func WaitForGNMIDown(t *testing.T, dut *ondatra.DUTDevice, timeout time.Duration) bool {
 	t.Helper()
+	gnmiC := dut.RawAPIs().GNMI(t)
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if !gnmiReachable(t, dut) {
+		if !gnmiReachable(gnmiC) {
 			return true
 		}
 		time.Sleep(2 * time.Second)
@@ -53,10 +56,31 @@ func WaitForGNMIDown(t *testing.T, dut *ondatra.DUTDevice, timeout time.Duration
 	return false
 }
 
-func gnmiReachable(t *testing.T, dut *ondatra.DUTDevice) bool {
+func gnmiReachable(gnmiC gpb.GNMIClient) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	p, _ := ygot.StringToStructuredPath("/system/state/hostname")
-	_, err := dut.RawAPIs().GNMI(t).Get(ctx, &gpb.GetRequest{Path: []*gpb.Path{p}, Encoding: gpb.Encoding_JSON_IETF})
-	return err == nil
+	sub, err := gnmiC.Subscribe(ctx)
+	if err != nil {
+		return false
+	}
+	if err := sub.Send(&gpb.SubscribeRequest{Request: &gpb.SubscribeRequest_Subscribe{Subscribe: &gpb.SubscriptionList{
+		Mode:         gpb.SubscriptionList_ONCE,
+		Encoding:     gpb.Encoding_PROTO,
+		Subscription: []*gpb.Subscription{{Path: p}},
+	}}}); err != nil {
+		return false
+	}
+	for {
+		resp, err := sub.Recv()
+		if err == io.EOF {
+			return true
+		}
+		if err != nil {
+			return false
+		}
+		if resp.GetSyncResponse() {
+			return true
+		}
+	}
 }

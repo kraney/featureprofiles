@@ -5,3 +5,27 @@ uuid: "bf4dce07-8efd-41ad-b01f-b0eb3864de3e"
 plan_id: "PLT-MLC-4"
 description: "Multi-linecard readiness: linecard and chassis lifecycle"
 testbed: TESTBED_DUT_ATE_4LINKS
+platform_exceptions: {
+  platform: {
+    vendor: ARISTA
+  }
+  deviations: {
+    gnoi_subcomponent_path: true
+  }
+}
+platform_exceptions: {
+  platform: {
+    vendor: CISCO
+  }
+  deviations: {
+    power_disable_enable_leaf_ref_validation: true
+  }
+}
+platform_exceptions: {
+  platform: {
+    vendor: JUNIPER
+  }
+  deviations: {
+    power_disable_enable_leaf_ref_validation: true
+  }
+}

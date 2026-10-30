@@ -36,31 +36,82 @@ import (
 // circuit.
 const NodeIDBase = 0x4d4c43000000 // "MLC" followed by zeros.
 
-// TargetICs returns the ICs a controller would program: the conventionally
-// named chips of every slot that holds a DUT port, plus every discovered
-// INTEGRATED_CIRCUIT that is on one of those slots or is not on a linecard at
-// all. A controller configures node-id on the chips in its model whether or not
-// the device advertised them; chips on unpopulated slots are left alone.
+// TargetICs returns the ICs a controller would program for the testbed. When
+// the testbed's DUT ports resolve to owning INTEGRATED_CIRCUIT components, all
+// owning ICs are included plus additional forwarding ICs on each populated
+// slot up to MinICsPerLinecard (at most one per populated slot when each slot
+// already has an owning IC, or up to MinICsPerLinecard per slot when fewer
+// than MinLinecards owning ICs exist), keeping the total active P4RT streams
+// within hardware gRPC connection limits (e.g. JGrpcServer on Juniper EVO)
+// while exercising multiple ICs across populated linecards.
 func TargetICs(dut *ondatra.DUTDevice, inv *Inventory, slots []int) []string {
 	want := map[int]bool{}
 	for _, s := range slots {
 		want[s] = true
 	}
+	n, hasNaming := NamingFor(dut)
 	set := map[string]bool{}
-	for _, ic := range inv.ICs() {
-		p := inv.Components[inv.Components[ic].Parent]
-		if p == nil || p.Type != oc.PlatformTypes_OPENCONFIG_HARDWARE_COMPONENT_LINECARD.String() {
+	perSlot := map[int]int{}
+	slotOfIC := func(ic string) (int, bool) {
+		if lc := inv.ParentLinecard(ic); lc != "" {
+			p := inv.Components[lc]
+			if s, err := strconv.Atoi(p.SlotID); err == nil {
+				return s, true
+			}
+			if hasNaming {
+				if s, ok := SlotFromName(n.Linecard, p.SlotID); ok {
+					return s, true
+				}
+				if s, ok := SlotFromName(n.Linecard, lc); ok {
+					return s, true
+				}
+			}
+		}
+		if hasNaming {
+			return SlotFromName(n.IC, ic)
+		}
+		return 0, false
+	}
+	// First include every IC that owns a testbed DUT port.
+	for _, p := range dut.Ports() {
+		if ic, err := inv.OwningIC(p.Name()); err == nil {
+			set[ic] = true
+			if s, ok := slotOfIC(ic); ok {
+				perSlot[s]++
+			}
+		}
+	}
+	// Next top up each populated slot to MinICsPerLinecard from discovered
+	// forwarding ICs (up to maxStreams total streams across the chassis so we
+	// stay within per-device P4RT StreamChannel limits; Juniper EVO's JGrpcServer
+	// enforces a 4-session limit shared with unary P4RT and gNMI RPCs, so keep at
+	// most 3 persistent StreamChannels open on Juniper).
+	maxStreams := 4
+	if dut.Vendor() == ondatra.JUNIPER {
+		maxStreams = 3
+	}
+	for _, ic := range inv.ForwardingICs(dut) {
+		if set[ic] || len(set) >= maxStreams {
+			continue
+		}
+		lc := inv.ParentLinecard(ic)
+		if lc == "" {
 			set[ic] = true
 			continue
 		}
-		if s, err := strconv.Atoi(p.SlotID); err == nil && want[s] {
+		if s, ok := slotOfIC(ic); ok && want[s] && perSlot[s] < *MinICsPerLinecard {
 			set[ic] = true
+			perSlot[s]++
 		}
 	}
-	if n, ok := NamingFor(dut); ok {
+	if hasNaming {
 		for _, s := range slots {
-			for c := 0; c < *MinICsPerLinecard; c++ {
-				set[n.ICName(s, c)] = true
+			for c := 0; c < *MinICsPerLinecard && perSlot[s] < *MinICsPerLinecard && len(set) < maxStreams; c++ {
+				ic := n.ICName(s, c)
+				if !set[ic] {
+					set[ic] = true
+					perSlot[s]++
+				}
 			}
 		}
 	}
@@ -73,13 +124,11 @@ func TargetICs(dut *ondatra.DUTDevice, inv *Inventory, slots []int) []string {
 }
 
 // parentLinecard returns the linecard an IC belongs to, from its reported
-// parent or else from the vendor naming convention.
+// ancestor linecard or else from the vendor naming convention.
 func parentLinecard(dut *ondatra.DUTDevice, inv *Inventory, ic string) string {
 	if inv != nil {
-		if c := inv.Components[ic]; c != nil && c.Parent != "" {
-			if p := inv.Components[c.Parent]; p != nil && p.Type == oc.PlatformTypes_OPENCONFIG_HARDWARE_COMPONENT_LINECARD.String() {
-				return c.Parent
-			}
+		if lc := inv.ParentLinecard(ic); lc != "" {
+			return lc
 		}
 	}
 	if n, ok := NamingFor(dut); ok {

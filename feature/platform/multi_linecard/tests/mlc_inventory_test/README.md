@@ -37,12 +37,19 @@ Each subtest is named after the requirement it checks:
 ```yaml
 paths:
   /components/component/state/type:
+    platform_type: ["CHASSIS", "LINECARD", "INTEGRATED_CIRCUIT", "PORT"]
   /components/component/state/parent:
+    platform_type: ["LINECARD", "INTEGRATED_CIRCUIT", "PORT"]
   /components/component/state/oper-status:
+    platform_type: ["LINECARD", "INTEGRATED_CIRCUIT"]
   /components/component/linecard/state/slot-id:
+    platform_type: ["LINECARD"]
   /components/component/integrated-circuit/config/node-id:
+    platform_type: ["INTEGRATED_CIRCUIT"]
   /components/component/integrated-circuit/state/node-id:
+    platform_type: ["INTEGRATED_CIRCUIT"]
   /components/component/integrated-circuit/backplane-facing-capacity/state/total-operational-capacity:
+    platform_type: ["INTEGRATED_CIRCUIT"]
   /interfaces/interface/config/enabled:
   /interfaces/interface/state/oper-status:
   /interfaces/interface/state/hardware-port:
@@ -52,6 +59,55 @@ rpcs:
   gnmi:
     gNMI.Set:
     gNMI.Subscribe:
+```
+
+#### Canonical OC
+
+```json
+{
+  "components": {
+    "component": [
+      {
+        "config": {
+          "name": "Linecard0"
+        },
+        "linecard": {
+          "state": {
+            "slot-id": "0"
+          }
+        },
+        "name": "Linecard0",
+        "state": {
+          "oper-status": "openconfig-platform-types:ACTIVE",
+          "type": "openconfig-platform-types:LINECARD"
+        }
+      },
+      {
+        "config": {
+          "name": "SwitchChip0/0"
+        },
+        "integrated-circuit": {
+          "backplane-facing-capacity": {
+            "state": {
+              "total-operational-capacity": "400000000000"
+            }
+          },
+          "config": {
+            "node-id": "1000"
+          },
+          "state": {
+            "node-id": "1000"
+          }
+        },
+        "name": "SwitchChip0/0",
+        "state": {
+          "parent": "Linecard0",
+          "type": "openconfig-platform-types:INTEGRATED_CIRCUIT"
+        }
+      }
+    ]
+  }
+}
 ```
 
 ## Required DUT platform

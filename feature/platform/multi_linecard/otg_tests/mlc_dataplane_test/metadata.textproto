@@ -23,6 +23,7 @@ platform_exceptions: {
     interface_enabled: true
     default_network_instance: "default"
     aggregate_atomic_update: true
+    unreferenced_aft_fib_ack_unsupported: true
   }
 }
 platform_exceptions: {
@@ -31,5 +32,6 @@ platform_exceptions: {
   }
   deviations: {
     ipv4_missing_enabled: true
+    gribi_riback_only: true
   }
 }

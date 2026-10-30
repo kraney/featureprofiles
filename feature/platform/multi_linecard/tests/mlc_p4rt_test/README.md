@@ -29,6 +29,7 @@ Each subtest is named after the requirement it checks:
 ```yaml
 paths:
   /components/component/integrated-circuit/config/node-id:
+    platform_type: ["INTEGRATED_CIRCUIT"]
   /interfaces/interface/config/id:
   /interfaces/interface/state/id:
   /interfaces/interface/state/counters/in-pkts:
@@ -43,6 +44,39 @@ rpcs:
     P4Runtime.GetForwardingPipelineConfig:
     P4Runtime.Write:
     P4Runtime.Read:
+```
+
+#### Canonical OC
+
+```json
+{
+  "components": {
+    "component": [
+      {
+        "config": {
+          "name": "SwitchChip0/0"
+        },
+        "integrated-circuit": {
+          "config": {
+            "node-id": "1000"
+          }
+        },
+        "name": "SwitchChip0/0"
+      }
+    ]
+  },
+  "interfaces": {
+    "interface": [
+      {
+        "config": {
+          "id": 1,
+          "name": "Ethernet1/1/1"
+        },
+        "name": "Ethernet1/1/1"
+      }
+    ]
+  }
+}
 ```
 
 ## Required DUT platform

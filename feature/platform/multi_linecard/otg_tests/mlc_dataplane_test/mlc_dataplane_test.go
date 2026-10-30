@@ -86,7 +86,7 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	dut, ate := ondatra.DUT(t, "dut"), ondatra.ATE(t, "ate")
 	f := &fixture{dut: dut, ate: ate, slot: mlc.DUTPortSlots(t, dut)}
-	for i := 1; i <= 4; i++ {
+	for i := 1; i <= len(dut.Ports()); i++ {
 		f.ports = append(f.ports, dut.Port(t, fmt.Sprintf("port%d", i)))
 		f.atePorts = append(f.atePorts, ate.Port(t, fmt.Sprintf("port%d", i)))
 		d, a := portAttrs(i - 1)
@@ -239,15 +239,12 @@ func TestMLCDataplane(t *testing.T) {
 
 	// Pick two egress ports on different linecards and an ingress port.
 	in, eg1, eg2 := cross[0][0], -1, -1
+	if len(same) > 0 {
+		in, eg1 = same[0][0], same[0][1]
+	}
 	for _, pr := range cross {
 		if pr[0] == in {
 			eg2 = pr[1]
-			break
-		}
-	}
-	for _, pr := range same {
-		if pr[0] == in {
-			eg1 = pr[1]
 			break
 		}
 	}
@@ -261,22 +258,34 @@ func TestMLCDataplane(t *testing.T) {
 	}
 
 	ni := deviations.DefaultNetworkInstance(f.dut)
-	gc := &gribi.Client{DUT: f.dut, FIBACK: true, Persistence: true}
+	wantACK := fluent.InstalledInFIB
+	if deviations.GRIBIRIBAckOnly(f.dut) {
+		wantACK = fluent.InstalledInRIB
+	}
+	gc := &gribi.Client{DUT: f.dut, FIBACK: !deviations.GRIBIRIBAckOnly(f.dut), Persistence: true}
 	gribiOK := t.Run("MLC-GRIBI-001_NHGSpanningLinecards", func(t *testing.T) {
 		if err := gc.Start(t); err != nil {
 			t.Fatalf("gRIBI Start: %v", err)
 		}
 		gc.BecomeLeader(t)
 		gc.FlushAll(t)
-		// Send the whole chain in one batch: some servers only acknowledge a next
-		// hop as FIB_PROGRAMMED once a route references it.
-		nh1, nh1Res := gribi.NHEntry(nh1ID, f.ateA[eg1].IPv4, ni, fluent.InstalledInFIB)
-		nh2, nh2Res := gribi.NHEntry(nh2ID, f.ateA[eg2].IPv4, ni, fluent.InstalledInFIB)
-		nhg, nhgRes := gribi.NHGEntry(nhgID, map[uint64]uint64{nh1ID: 1, nh2ID: 1}, ni, fluent.InstalledInFIB)
+		// Send the NextHops first if the platform supports unreferenced FIB ACKs,
+		// or send the whole chain in one batch when unreferenced FIB ACKs are
+		// unsupported (e.g. Arista EOS only acknowledges a next hop as
+		// FIB_PROGRAMMED once a route references it).
+		nh1, nh1Res := gribi.NHEntry(nh1ID, f.ateA[eg1].IPv4, ni, wantACK)
+		nh2, nh2Res := gribi.NHEntry(nh2ID, f.ateA[eg2].IPv4, ni, wantACK)
+		nhg, nhgRes := gribi.NHGEntry(nhgID, map[uint64]uint64{nh1ID: 1, nh2ID: 1}, ni, wantACK)
 		route := fluent.IPv4Entry().WithNetworkInstance(ni).WithPrefix(gribiPfx).WithNextHopGroup(nhgID)
 		routeRes := fluent.OperationResult().WithIPv4Operation(gribiPfx).WithOperationType(constants.Add).
-			WithProgrammingResult(fluent.InstalledInFIB).AsResult()
-		gc.AddEntries(t, []fluent.GRIBIEntry{nh1, nh2, nhg, route}, []*client.OpResult{nh1Res, nh2Res, nhgRes, routeRes})
+			WithProgrammingResult(wantACK).AsResult()
+		if deviations.UnreferencedAftFibAckUnsupported(f.dut) {
+			gc.AddEntries(t, []fluent.GRIBIEntry{nh1, nh2, nhg, route}, []*client.OpResult{nh1Res, nh2Res, nhgRes, routeRes})
+		} else {
+			gc.AddEntries(t, []fluent.GRIBIEntry{nh1, nh2}, []*client.OpResult{nh1Res, nh2Res})
+			gc.AddEntries(t, []fluent.GRIBIEntry{nhg}, []*client.OpResult{nhgRes})
+			gc.AddEntries(t, []fluent.GRIBIEntry{route}, []*client.OpResult{routeRes})
+		}
 
 		f.configureATE(t)
 		f.addFlow("gribi_nhg", in, []int{eg1, eg2}, gribiDstMin, 200)
@@ -301,7 +310,7 @@ func TestMLCDataplane(t *testing.T) {
 		f.addFlow("gribi_reconnect", in, []int{eg1, eg2}, gribiDstMin, 200)
 		f.runFlows(t, func() {
 			gc.Close(t)
-			gc = &gribi.Client{DUT: f.dut, FIBACK: true, Persistence: true}
+			gc = &gribi.Client{DUT: f.dut, FIBACK: !deviations.GRIBIRIBAckOnly(f.dut), Persistence: true}
 			if err := gc.Start(t); err != nil {
 				t.Errorf("gRIBI restart: %v", err)
 				return

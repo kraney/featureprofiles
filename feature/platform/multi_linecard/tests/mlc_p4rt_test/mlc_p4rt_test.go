@@ -261,6 +261,7 @@ func TestMLCP4RT(t *testing.T) {
 			devToIC[id] = ic
 		}
 		punting := map[string]bool{}
+		expectedICs := map[string]bool{}
 		for _, p := range f.dut.Ports() {
 			mac := srcMAC(p.ID())
 			devs := seen[mac]
@@ -272,6 +273,9 @@ func TestMLCP4RT(t *testing.T) {
 				t.Errorf("%s: PacketIn delivered on %d device streams %v, want exactly 1", p.Name(), len(devs), devs)
 			}
 			want, err := f.inv.OwningIC(p.Name())
+			if err == nil {
+				expectedICs[want] = true
+			}
 			for dev := range devs {
 				punting[devToIC[dev]] = true
 				if err == nil && devToIC[dev] != want {
@@ -279,8 +283,12 @@ func TestMLCP4RT(t *testing.T) {
 				}
 			}
 		}
-		if want := len(f.dut.Ports()); len(punting) < want {
-			t.Errorf("PacketIns for %d ports (one per IC) arrived on only %d distinct devices %v", want, len(punting), keys(punting))
+		wantDevices := len(expectedICs)
+		if wantDevices == 0 {
+			wantDevices = *mlc.MinLinecards
+		}
+		if len(punting) < wantDevices {
+			t.Errorf("PacketIns for %d ports (across %d owning ICs) arrived on only %d distinct devices %v, want %d", len(f.dut.Ports()), len(expectedICs), len(punting), keys(punting), wantDevices)
 		}
 	})
 
@@ -324,7 +332,23 @@ func TestMLCP4RT(t *testing.T) {
 				t.Errorf("%s: StreamChannel: %v", ic, err)
 				continue
 			}
-			if code, err := s.Arbitrate(secondElection, arbTimeout); err != nil || code != codes.OK {
+			code, err := s.Arbitrate(secondElection, arbTimeout)
+			if err != nil && strings.Contains(err.Error(), "Max Client connection limit reached") {
+				// Devices with a 4-stream JGrpcServer cap require closing the old
+				// stream before a 5th concurrent StreamChannel can be opened.
+				s.Close()
+				old.Close()
+				s, err = mlc.OpenStream(f.client, f.nodeIDs[ic])
+				if err == nil {
+					code, err = s.Arbitrate(secondElection, arbTimeout)
+				}
+				if err != nil || code != codes.OK {
+					t.Errorf("%s: new primary with higher election_id: %v, %v; want OK", ic, code, err)
+				}
+				newStreams[ic] = s
+				continue
+			}
+			if err != nil || code != codes.OK {
 				t.Errorf("%s: new primary with higher election_id: %v, %v; want OK", ic, code, err)
 			}
 			newStreams[ic] = s
@@ -336,6 +360,7 @@ func TestMLCP4RT(t *testing.T) {
 			case <-time.After(arbTimeout):
 				t.Errorf("%s: old primary was not notified of the new primary", ic)
 			}
+			old.Close()
 		}
 		for ic, s := range f.streams {
 			s.Close()

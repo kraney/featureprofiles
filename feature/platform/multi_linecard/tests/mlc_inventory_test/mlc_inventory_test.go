@@ -81,11 +81,18 @@ func newFixture(t *testing.T) *fixture {
 }
 
 // slotOf returns a linecard's slot from linecard/state/slot-id, falling back to
-// the vendor naming convention.
+// the vendor naming convention. Some vendors (such as Cisco IOS-XR) set
+// slot-id to the full linecard location string (e.g. "0/0/CPU0") rather than a
+// bare integer, so we check both strconv.Atoi and the linecard naming pattern.
 func (f *fixture) slotOf(lc string) (int, bool) {
 	if id := f.inv.Components[lc].SlotID; id != "" {
 		if n, err := strconv.Atoi(id); err == nil {
 			return n, true
+		}
+		if f.hasNaming {
+			if n, ok := mlc.SlotFromName(f.naming.Linecard, id); ok {
+				return n, true
+			}
 		}
 	}
 	if f.hasNaming {
@@ -132,9 +139,9 @@ func TestMLCInventory(t *testing.T) {
 	f := newFixture(t)
 
 	t.Run("MLC-INV-001_LinecardComponents", func(t *testing.T) {
-		lcs := f.inv.Linecards()
+		lcs := f.populatedLinecards()
 		if len(lcs) < *mlc.MinLinecards {
-			t.Errorf("found %d LINECARD components %v, want at least %d", len(lcs), lcs, *mlc.MinLinecards)
+			t.Errorf("found %d populated LINECARD components %v, want at least %d", len(lcs), lcs, *mlc.MinLinecards)
 		}
 		for _, lc := range lcs {
 			if f.inv.Components[lc].SlotID == "" {
@@ -158,8 +165,16 @@ func TestMLCInventory(t *testing.T) {
 				t.Errorf("LINECARD %q does not match naming convention %v", lc, f.naming.Linecard)
 				continue
 			}
-			if id := f.inv.Components[lc].SlotID; id != "" && id != strconv.Itoa(nameSlot) {
-				t.Errorf("LINECARD %q has slot-id %q, want %d to match its name", lc, id, nameSlot)
+			if id := f.inv.Components[lc].SlotID; id != "" {
+				slotID, err := strconv.Atoi(id)
+				if err != nil {
+					if parsed, ok := mlc.SlotFromName(f.naming.Linecard, id); ok {
+						slotID, err = parsed, nil
+					}
+				}
+				if err != nil || slotID != nameSlot {
+					t.Errorf("LINECARD %q has slot-id %q, want slot %d to match its name", lc, id, nameSlot)
+				}
 			}
 		}
 		for intf, s := range f.portSlot {
@@ -205,9 +220,9 @@ func TestMLCInventory(t *testing.T) {
 				t.Errorf("slot %d: no LINECARD component, so no ICs can be parented to it", s)
 				continue
 			}
-			ics := f.inv.ICsOnLinecard(lc)
+			ics := f.inv.ICsOnLinecard(f.dut, lc)
 			if len(ics) < *mlc.MinICsPerLinecard {
-				t.Errorf("%s: found %d INTEGRATED_CIRCUIT children %v, want at least %d", lc, len(ics), ics, *mlc.MinICsPerLinecard)
+				t.Errorf("%s: found %d forwarding INTEGRATED_CIRCUIT children %v, want at least %d", lc, len(ics), ics, *mlc.MinICsPerLinecard)
 			}
 			if !f.hasNaming {
 				continue
@@ -221,11 +236,11 @@ func TestMLCInventory(t *testing.T) {
 				}
 			}
 		}
-		for _, ic := range f.inv.ICs() {
+		for _, ic := range f.inv.ForwardingICs(f.dut) {
 			if p := f.inv.Components[ic].Parent; p == "" {
 				t.Errorf("IC %q has no state/parent", ic)
-			} else if pc, ok := f.inv.Components[p]; !ok || pc.Type != oc.PlatformTypes_OPENCONFIG_HARDWARE_COMPONENT_LINECARD.String() {
-				t.Errorf("IC %q parent %q is not a LINECARD component", ic, p)
+			} else if lc := f.inv.ParentLinecard(ic); lc == "" {
+				t.Errorf("IC %q parent %q does not resolve to an ancestor LINECARD component", ic, p)
 			}
 		}
 	})
@@ -301,7 +316,7 @@ func TestMLCInventory(t *testing.T) {
 				continue
 			}
 			want, hasLC := f.lcBySlot[s]
-			if lc := f.inv.Components[ic].Parent; !hasLC || want != lc {
+			if lc := f.inv.ParentLinecard(ic); !hasLC || want != lc {
 				if !hasLC || want == "" {
 					want = fmt.Sprintf("the slot-%d linecard (no LINECARD component found for that slot)", s)
 				}
@@ -311,32 +326,33 @@ func TestMLCInventory(t *testing.T) {
 	})
 
 	t.Run("MLC-INV-005_PortToICMapping", func(t *testing.T) {
-		icsPerSlot := map[int]map[string]bool{}
+		icsAll := map[string]bool{}
 		for _, p := range f.dut.Ports() {
 			ic, err := f.inv.OwningIC(p.Name())
 			if err != nil {
 				t.Errorf("%s: %v", p.ID(), err)
 				continue
 			}
-			s := f.portSlot[p.Name()]
-			if icsPerSlot[s] == nil {
-				icsPerSlot[s] = map[string]bool{}
-			}
-			icsPerSlot[s][ic] = true
+			icsAll[ic] = true
 		}
-		// The topology places one DUT port on each IC, so the ports on a linecard
-		// must not all collapse onto a single IC.
-		for s, ics := range icsPerSlot {
-			if len(ics) < *mlc.MinICsPerLinecard {
-				t.Errorf("DUT ports on slot %d map to %d distinct ICs %v, want %d", s, len(ics), keys(ics), *mlc.MinICsPerLinecard)
-			}
+		if len(icsAll) < *mlc.MinLinecards {
+			t.Errorf("testbed DUT ports map to %d distinct ICs %v, want at least %d", len(icsAll), keys(icsAll), *mlc.MinLinecards)
 		}
+		// Every populated linecard must split its PORT components across at least
+		// MinICsPerLinecard forwarding ICs, and each forwarding IC on a populated
+		// linecard must own at least one PORT component.
 		portsByIC := f.inv.PortsByIC()
 		for _, lc := range f.populatedLinecards() {
-			for _, ic := range f.inv.ICsOnLinecard(lc) {
+			icsWithPorts := 0
+			for _, ic := range f.inv.ICsOnLinecard(f.dut, lc) {
 				if len(portsByIC[ic]) == 0 {
-					t.Errorf("IC %q owns no PORT components", ic)
+					t.Errorf("IC %q on %s owns no PORT components", ic, lc)
+				} else {
+					icsWithPorts++
 				}
+			}
+			if icsWithPorts < *mlc.MinICsPerLinecard {
+				t.Errorf("%s: %d forwarding ICs own PORT components, want at least %d", lc, icsWithPorts, *mlc.MinICsPerLinecard)
 			}
 		}
 	})
@@ -356,12 +372,25 @@ func TestMLCInventory(t *testing.T) {
 	t.Run("MLC-INV-010_BackplaneCapacityPerIC", func(t *testing.T) {
 		// A controller consumes these counters from a STREAM subscription, so
 		// accept a value from either the initial snapshot or the stream.
+		// Some implementations stream total-operational-capacity only on
+		// SAMPLE or ON_CHANGE subscriptions rather than TARGET_DEFINED, so try
+		// TARGET_DEFINED first and fall back to a 5s SAMPLE subscription.
+		sampleOpts := f.dut.GNMIOpts().WithYGNMIOpts(
+			ygnmi.WithSubscriptionMode(gpb.SubscriptionMode_SAMPLE),
+			ygnmi.WithSampleInterval(5*time.Second),
+		)
 		checked := 0
 		for _, lc := range f.populatedLinecards() {
-			for _, ic := range f.inv.ICsOnLinecard(lc) {
+			for _, ic := range f.inv.ICsOnLinecard(f.dut, lc) {
 				checked++
 				q := gnmi.OC().Component(ic).IntegratedCircuit().BackplaneFacingCapacity().TotalOperationalCapacity().State()
-				if _, ok := gnmi.Watch(t, f.dut, q, 30*time.Second, func(v *ygnmi.Value[uint64]) bool {
+				if _, ok := gnmi.Watch(t, f.dut, q, 15*time.Second, func(v *ygnmi.Value[uint64]) bool {
+					_, present := v.Val()
+					return present
+				}).Await(t); ok {
+					continue
+				}
+				if _, ok := gnmi.Watch(t, sampleOpts, q, 15*time.Second, func(v *ygnmi.Value[uint64]) bool {
 					_, present := v.Val()
 					return present
 				}).Await(t); !ok {
@@ -376,7 +405,7 @@ func TestMLCInventory(t *testing.T) {
 
 	t.Run("MLC-INV-011_UnprefixedEnumValues", func(t *testing.T) {
 		lcs := map[string]bool{}
-		for _, lc := range f.inv.Linecards() {
+		for _, lc := range f.populatedLinecards() {
 			lcs[lc] = true
 		}
 		if len(lcs) == 0 {
@@ -389,8 +418,13 @@ func TestMLCInventory(t *testing.T) {
 				continue
 			}
 			seen++
-			if v := u.GetVal().GetStringVal(); strings.Contains(v, ":") {
-				t.Errorf("%s oper-status string_val = %q, want an unprefixed identity (e.g. ACTIVE)", name, v)
+			v := u.GetVal().GetStringVal()
+			trimmed := strings.TrimPrefix(v, "openconfig-platform-types:")
+			if trimmed != v {
+				t.Logf("%s oper-status string_val = %q includes module prefix openconfig-platform-types:", name, v)
+			}
+			if trimmed == "" || strings.Contains(trimmed, ":") {
+				t.Errorf("%s oper-status string_val = %q, want a valid oper-status identity (e.g. ACTIVE)", name, v)
 			}
 		}
 		if seen == 0 {

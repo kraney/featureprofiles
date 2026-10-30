@@ -240,14 +240,61 @@ func (inv *Inventory) ICs() []string {
 	return inv.ByType(oc.PlatformTypes_OPENCONFIG_HARDWARE_COMPONENT_INTEGRATED_CIRCUIT)
 }
 
-// ICsOnLinecard returns the names of INTEGRATED_CIRCUIT components whose parent
-// is the given linecard.
-func (inv *Inventory) ICsOnLinecard(lc string) []string {
+// ParentLinecard walks c's parent chain up to 8 hops and returns the ancestor
+// LINECARD component name, or "" if c does not sit under a LINECARD. Some
+// vendors insert an intermediate component between the linecard and its ICs
+// (for example "0/<slot>/CPU0-Motherboard" on Cisco IOS-XR or "FPC<slot>:PIC0"
+// on Juniper EVO).
+func (inv *Inventory) ParentLinecard(name string) string {
+	cur := name
+	for range 8 {
+		c, ok := inv.Components[cur]
+		if !ok || c.Parent == "" || c.Parent == cur {
+			return ""
+		}
+		p, ok := inv.Components[c.Parent]
+		if !ok {
+			return ""
+		}
+		if p.Type == oc.PlatformTypes_OPENCONFIG_HARDWARE_COMPONENT_LINECARD.String() {
+			return p.Name
+		}
+		cur = p.Name
+	}
+	return ""
+}
+
+// ICsOnLinecard returns the names of forwarding INTEGRATED_CIRCUIT components
+// whose ancestor linecard is lc. When a vendor IC naming convention is known,
+// board-level auxiliary ICs (such as voltage regulators, clock generators,
+// FPGAs, or sub-core DP nodes) are excluded so callers inspect only the
+// forwarding ASICs that a controller programs.
+func (inv *Inventory) ICsOnLinecard(dut *ondatra.DUTDevice, lc string) []string {
+	n, hasNaming := NamingFor(dut)
 	var out []string
 	for _, ic := range inv.ICs() {
-		if inv.Components[ic].Parent == lc {
-			out = append(out, ic)
+		if inv.ParentLinecard(ic) != lc {
+			continue
 		}
+		if hasNaming && !n.IC.MatchString(ic) {
+			continue
+		}
+		out = append(out, ic)
+	}
+	return out
+}
+
+// ForwardingICs returns all discovered INTEGRATED_CIRCUIT components that match
+// the vendor's forwarding IC naming convention (or all discovered ICs when no
+// naming convention is defined for the vendor).
+func (inv *Inventory) ForwardingICs(dut *ondatra.DUTDevice) []string {
+	n, hasNaming := NamingFor(dut)
+	var out []string
+	for _, ic := range inv.ICs() {
+		if hasNaming && !n.IC.MatchString(ic) {
+			continue
+		}
+		out = append(out, ic)
 	}
 	return out
 }

@@ -45,6 +45,38 @@ rpcs:
     gRIBI.Get:
 ```
 
+#### Canonical OC
+
+```json
+{
+  "interfaces": {
+    "interface": [
+      {
+        "config": {
+          "enabled": true,
+          "name": "Port-Channel1",
+          "type": "iana-if-type:ieee8023adLag"
+        },
+        "name": "Port-Channel1"
+      },
+      {
+        "config": {
+          "enabled": true,
+          "name": "Ethernet1/1/1",
+          "type": "iana-if-type:ethernetCsmacd"
+        },
+        "ethernet": {
+          "config": {
+            "aggregate-id": "Port-Channel1"
+          }
+        },
+        "name": "Ethernet1/1/1"
+      }
+    ]
+  }
+}
+```
+
 ## Required DUT platform
 
 *   Modular chassis with at least two linecards and at least two forwarding
